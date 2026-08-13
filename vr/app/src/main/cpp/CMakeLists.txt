@@ -22,7 +22,9 @@ add_library(simplelivevr SHARED
     main.cpp
     video_decoder.cpp
     video_renderer.cpp
-    data_bridge.cpp)
+    data_bridge.cpp
+    flv_demuxer.cpp
+    stream_downloader.cpp)
 target_include_directories(simplelivevr PRIVATE
     ${OPENXR_SDK_SOURCE_DIR}/include
     ${ANDROID_NDK}/sources/android/native_app_glue)
