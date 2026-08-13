@@ -320,7 +320,7 @@ void android_main(struct android_app* app) {
                     // Hardcoded H.264 1080p decoder; real stream source is the next milestone.
                     g_decoder.Init(env, "video/avc", 1920, 1080);
                 if (g_bridge.Connect("127.0.0.1", 9527)) {
-                    g_bridge.SendWatch("bilibili", "1");  // TODO: real room id
+                    g_bridge.Send("LIST bilibili");
                 }
                 }
             }
@@ -329,14 +329,15 @@ void android_main(struct android_app* app) {
         if (initialized) {
             PollEvents();
             if (g_running) RenderFrame();
-            std::string btype, ba, bb;
-            while (g_bridge.Poll(btype, ba, bb)) {
+            std::string btype;
+            std::vector<std::string> bf;
+            while (g_bridge.Poll(btype, bf)) {
                 if (btype == "STREAM") {
-                    LOGI("bridge: stream = %s", ba.c_str());
-                    g_downloader.Start(ba.c_str(), g_vm, &g_decoder);
+                    LOGI("bridge: stream = %s", bf.empty() ? "" : bf[0].c_str());
+                    if (!bf.empty()) g_downloader.Start(bf[0].c_str(), g_vm, &g_decoder);
                 }
                 else if (btype == "DANMAKU") LOGI("danmaku [%s]: %s", ba.c_str(), bb.c_str());
-                else LOGI("bridge: %s %s %s", btype.c_str(), ba.c_str(), bb.c_str());
+                else LOGI("bridge: %s", btype.c_str());
             }
         }
     }
