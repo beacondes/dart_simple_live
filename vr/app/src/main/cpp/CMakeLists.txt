@@ -8,8 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_library(native_app_glue STATIC
     ${ANDROID_NDK}/sources/android/native_app_glue/android_native_app_glue.c)
 target_include_directories(native_app_glue PRIVATE
-    ${ANDROID_NDK}/sources/android/native_app_glue
-    ${ANDROID_NDK}/sysroot/usr/include/freetype2)
+    ${ANDROID_NDK}/sources/android/native_app_glue)
 
 # OpenXR SDK (headers + loader)
 set(OPENXR_SDK_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/OpenXR-SDK-Source")
@@ -30,13 +29,11 @@ add_library(simplelivevr SHARED
     danmaku_renderer.cpp)
 target_include_directories(simplelivevr PRIVATE
     ${OPENXR_SDK_SOURCE_DIR}/include
-    ${ANDROID_NDK}/sources/android/native_app_glue
-    ${ANDROID_NDK}/sysroot/usr/include/freetype2)
+    ${ANDROID_NDK}/sources/android/native_app_glue)
 target_link_libraries(simplelivevr
     native_app_glue
     openxr_loader
     android
     log
     EGL
-    GLESv3
-    freetype)
+    GLESv3)
