@@ -1,18 +1,23 @@
 #pragma once
 #include <string>
+#include <vector>
 
 // TCP client that talks to the Dart bridge server (see bridge/).
-// Protocol: newline-delimited text lines.
-//   client -> server: "WATCH <platform> <roomId>"
-//   server -> client: "STREAM <url>" / "DANMAKU <user>|<text>" / "READY" / "CLOSE" / "ERROR <msg>"
+// Protocol: newline-delimited text lines. Each line is TYPE + space + fields
+// separated by '|'. Examples:
+//   client -> server: WATCH <platform> <roomId> | LIST <platform> | SEARCH <platform> <kw>
+//   server -> client: STREAM <url> | DANMAKU <user>|<text> | ROOM <id>|<title>|<user>|<online>
+//                     | READY | CLOSE | DONE | ERROR <msg>
 class DataBridge {
 public:
     DataBridge() = default;
     ~DataBridge();
 
     bool Connect(const char* host, int port);
-    bool SendWatch(const char* platform, const char* roomId);
-    bool Poll(std::string& type, std::string& a, std::string& b);
+    // Send an arbitrary command line (newline is appended automatically).
+    bool Send(const char* line);
+    // Non-blocking: parse one pending line into type + pipe-separated fields.
+    bool Poll(std::string& type, std::vector<std::string>& fields);
     bool IsConnected() const { return sock_ >= 0; }
     void Disconnect();
 
