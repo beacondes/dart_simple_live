@@ -28,7 +28,8 @@ add_library(simplelivevr SHARED
     text_renderer.cpp
     danmaku_renderer.cpp
     room_list_ui.cpp
-    xr_input.cpp)
+    xr_input.cpp
+    status_overlay.cpp)
 target_include_directories(simplelivevr PRIVATE
     ${OPENXR_SDK_SOURCE_DIR}/include
     ${ANDROID_NDK}/sources/android/native_app_glue)
