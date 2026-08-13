@@ -15,6 +15,7 @@ public:
     void Clear();
     // Gaze-based selection. Returns a non-empty roomId once gaze dwell triggers.
     std::string Update(const XrPosef& viewPose, float dt);
+    std::string UpdateWithController(const XrPosef& controllerPose, bool triggerPressed, float dt);
     void Render(const XrPosef& viewPose, const XrFovf& fov);
     void Shutdown();
 
