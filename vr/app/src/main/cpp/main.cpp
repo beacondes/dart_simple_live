@@ -16,6 +16,9 @@
 #include <vector>
 #include <string>
 
+#include "video_decoder.h"
+#include "video_renderer.h"
+
 #define LOG_TAG "SimpleLiveVR"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -32,6 +35,11 @@ EGLDisplay g_eglDisplay = EGL_NO_DISPLAY;
 EGLContext g_eglContext = EGL_NO_CONTEXT;
 EGLSurface g_eglSurface = EGL_NO_SURFACE;
 EGLConfig g_eglConfig = nullptr;
+
+VideoDecoder g_decoder;
+VideoRenderer g_renderer;
+JNIEnv* g_env = nullptr;
+bool g_rendererReady = false;
 
 struct Swapchain {
     XrSwapchain handle = XR_NULL_HANDLE;
@@ -183,6 +191,10 @@ void RenderFrame() {
         uint32_t viewCount = 0;
         xrLocateViews(g_session, &viewInfo, &viewState, (uint32_t)g_views.size(), &viewCount, g_views.data());
 
+        if (g_rendererReady && g_decoder.IsInit() && g_env) {
+            g_decoder.UpdateTexture(g_env);
+        }
+
         std::vector<XrCompositionLayerProjectionView> projViews(g_views.size());
         for (uint32_t i = 0; i < viewCount; i++) {
             Swapchain& sc = g_swapchains[i];
@@ -198,6 +210,11 @@ void RenderFrame() {
             glViewport(0, 0, sc.width, sc.height);
             glClearColor(0.08f, 0.10f, 0.14f, 1.0f);
             glClear(GL_COLOR_BUFFER_BIT);
+
+            if (g_rendererReady) {
+                g_renderer.Render(g_decoder.GetTexture(), g_views[i].pose, g_views[i].fov);
+            }
+
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
             XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
@@ -252,6 +269,8 @@ void PollEvents() {
 }
 
 void Cleanup() {
+    g_decoder.Shutdown(g_env);
+    g_renderer.Shutdown();
     for (auto& sc : g_swapchains) {
         for (GLuint fb : sc.framebuffers) glDeleteFramebuffers(1, &fb);
         if (sc.handle != XR_NULL_HANDLE) xrDestroySwapchain(sc.handle);
@@ -272,6 +291,10 @@ void Cleanup() {
 void android_main(struct android_app* app) {
     app_dummy();
 
+    JNIEnv* env = nullptr;
+    app->activity->vm->AttachCurrentThread(&env, nullptr);
+    g_env = env;
+
     bool initialized = false;
     while (!app->destroyRequested) {
         int events;
@@ -284,6 +307,13 @@ void android_main(struct android_app* app) {
 
         if (!initialized && app->window != nullptr) {
             initialized = InitEGL(app) && InitOpenXR(app);
+            if (initialized) {
+                g_rendererReady = g_renderer.Init();
+                if (g_rendererReady) {
+                    // Hardcoded H.264 1080p decoder; real stream source is the next milestone.
+                    g_decoder.Init(env, "video/avc", 1920, 1080);
+                }
+            }
             if (!initialized) { LOGE("init failed"); break; }
         }
         if (initialized) {
