@@ -1,10 +1,7 @@
 #include "text_renderer.h"
 
-#include <ft2build.h>
-#include FT_FREETYPE_H
-
-#include <algorithm>
 #include <vector>
+#include <cmath>
 
 #include <android/log.h>
 
@@ -12,120 +9,105 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 
-// Common Android system font locations (CJK-capable first).
-static const char* kFontPaths[] = {
-    "/system/fonts/NotoSansCJK-Regular.ttc",
-    "/system/fonts/NotoSansCJKsc-Regular.otf",
-    "/system/fonts/DroidSansFallback.ttf",
-    "/system/fonts/Roboto-Regular.ttf",
-};
+bool TextRenderer::CacheJni(JNIEnv* env) {
+    clsBitmap_ = (jclass)env->NewGlobalRef(env->FindClass("android/graphics/Bitmap"));
+    clsCanvas_ = (jclass)env->NewGlobalRef(env->FindClass("android/graphics/Canvas"));
+    clsPaint_ = (jclass)env->NewGlobalRef(env->FindClass("android/graphics/Paint"));
+    if (!clsBitmap_ || !clsCanvas_ || !clsPaint_) { LOGE("FindClass failed"); return false; }
 
-static std::vector<uint32_t> Utf8Decode(const std::string& s) {
-    std::vector<uint32_t> cps;
-    size_t i = 0;
-    while (i < s.size()) {
-        uint8_t c = (uint8_t)s[i];
-        uint32_t cp = 0;
-        int len = 0;
-        if (c < 0x80) { cp = c; len = 1; }
-        else if ((c & 0xE0) == 0xC0) { cp = c & 0x1F; len = 2; }
-        else if ((c & 0xF0) == 0xE0) { cp = c & 0x0F; len = 3; }
-        else if ((c & 0xF8) == 0xF0) { cp = c & 0x07; len = 4; }
-        else { i++; continue; }
-        if (i + len > s.size()) break;
-        for (int k = 1; k < len; k++) cp = (cp << 6) | ((uint8_t)s[i + k] & 0x3F);
-        cps.push_back(cp);
-        i += len;
+    fArgb8888_ = env->GetStaticFieldID(clsBitmap_, "ARGB_8888", "Landroid/graphics/Bitmap$Config;");
+    mCreateBitmap_ = env->GetStaticMethodID(clsBitmap_, "createBitmap",
+        "(IILandroid/graphics/Bitmap$Config;)Landroid/graphics/Bitmap;");
+    mGetPixels_ = env->GetMethodID(clsBitmap_, "getPixels", "([IIIIII)V");
+    mCanvasCtor_ = env->GetMethodID(clsCanvas_, "<init>", "(Landroid/graphics/Bitmap;)V");
+    mDrawText_ = env->GetMethodID(clsCanvas_, "drawText",
+        "(Ljava/lang/String;FFLandroid/graphics/Paint;)V");
+    mPaintCtor_ = env->GetMethodID(clsPaint_, "<init>", "()V");
+    mSetTextSize_ = env->GetMethodID(clsPaint_, "setTextSize", "(F)V");
+    mSetColor_ = env->GetMethodID(clsPaint_, "setColor", "(I)V");
+    mSetAntiAlias_ = env->GetMethodID(clsPaint_, "setAntiAlias", "(Z)V");
+    mMeasureText_ = env->GetMethodID(clsPaint_, "measureText", "(Ljava/lang/String;)F");
+
+    if (!fArgb8888_ || !mCreateBitmap_ || !mGetPixels_ || !mCanvasCtor_ || !mDrawText_ ||
+        !mPaintCtor_ || !mSetTextSize_ || !mSetColor_ || !mSetAntiAlias_ || !mMeasureText_) {
+        LOGE("GetMethodID failed");
+        return false;
     }
-    return cps;
+    return true;
 }
 
-bool TextRenderer::Init() {
-    FT_Library ft = nullptr;
-    if (FT_Init_FreeType(&ft) != 0) { LOGE("FT_Init_FreeType failed"); return false; }
-
-    FT_Face face = nullptr;
-    for (const char* path : kFontPaths) {
-        if (FT_New_Face(ft, path, 0, &face) == 0) {
-            LOGI("loaded font: %s", path);
-            break;
-        }
-    }
-    if (!face) { LOGE("no font found"); FT_Done_FreeType(ft); return false; }
-
-    ft_ = ft;
-    face_ = face;
+bool TextRenderer::Init(JNIEnv* env) {
+    if (init_) return true;
+    env_ = env;
+    if (!CacheJni(env)) return false;
     init_ = true;
+    LOGI("text renderer initialized");
     return true;
 }
 
 GLuint TextRenderer::RenderText(const std::string& text, int& outW, int& outH, uint32_t rgba) {
-    if (!init_) return 0;
-    FT_Face face = (FT_Face)face_;
+    if (!init_ || !env_) return 0;
 
-    const int px = 48;  // font height in pixels
-    FT_Set_Pixel_Sizes(face, 0, px);
+    const float textSize = 48.0f;
+    jobject paint = env_->NewObject(clsPaint_, mPaintCtor_);
+    env_->CallVoidMethod(paint, mSetTextSize_, (jfloat)textSize);
+    env_->CallVoidMethod(paint, mSetAntiAlias_, (jboolean)JNI_TRUE);
+    // rgba is 0xRRGGBBAA; Android setColor wants 0xAARRGGBB.
+    uint32_t a = rgba & 0xFF, r = (rgba >> 24) & 0xFF, g = (rgba >> 16) & 0xFF, b = (rgba >> 8) & 0xFF;
+    env_->CallVoidMethod(paint, mSetColor_, (jint)((a << 24) | (r << 16) | (g << 8) | b));
 
-    auto cps = Utf8Decode(text);
-    if (cps.empty()) return 0;
+    jstring jtext = env_->NewStringUTF(text.c_str());
+    float tw = env_->CallFloatMethod(paint, mMeasureText_, jtext);
+    int w = (int)std::ceil(tw) + 8;
+    int h = (int)(textSize * 1.4f);
+    if (w <= 0 || h <= 0) { env_->DeleteLocalRef(jtext); env_->DeleteLocalRef(paint); return 0; }
 
-    // First pass: measure.
-    int totalW = 0, maxH = 0, maxTop = 0;
-    for (uint32_t cp : cps) {
-        if (FT_Load_Char(face, cp, FT_LOAD_RENDER)) continue;
-        totalW += face->glyph->bitmap.width + 2;
-        maxH = std::max(maxH, (int)face->glyph->bitmap.rows);
-        maxTop = std::max(maxTop, face->glyph->bitmap_top);
+    jobject config = env_->GetStaticObjectField(clsBitmap_, fArgb8888_);
+    jobject bitmap = env_->CallStaticObjectMethod(clsBitmap_, mCreateBitmap_, (jint)w, (jint)h, config);
+    env_->DeleteLocalRef(config);
+    if (!bitmap) { env_->DeleteLocalRef(jtext); env_->DeleteLocalRef(paint); return 0; }
+
+    jobject canvas = env_->NewObject(clsCanvas_, mCanvasCtor_, bitmap);
+    env_->CallVoidMethod(canvas, mDrawText_, jtext, (jfloat)4.0f, (jfloat)(textSize), paint);
+
+    jintArray arr = env_->NewIntArray(w * h);
+    env_->CallVoidMethod(bitmap, mGetPixels_, arr, (jint)0, (jint)w, (jint)0, (jint)0, (jint)w, (jint)h);
+    jint* pixels = env_->GetIntArrayElements(arr, nullptr);
+
+    std::vector<uint8_t> rgbaBuf((size_t)w * h * 4);
+    for (int i = 0; i < w * h; i++) {
+        jint p = pixels[i];
+        rgbaBuf[i * 4 + 0] = (p >> 16) & 0xFF;  // R
+        rgbaBuf[i * 4 + 1] = (p >> 8) & 0xFF;   // G
+        rgbaBuf[i * 4 + 2] = p & 0xFF;          // B
+        rgbaBuf[i * 4 + 3] = (p >> 24) & 0xFF;  // A
     }
-    if (totalW <= 0 || maxH <= 0) return 0;
-    int baseline = maxTop;
-
-    // Second pass: composite into one bitmap.
-    std::vector<uint8_t> pixels((size_t)totalW * maxH, 0);
-    int x = 0;
-    for (uint32_t cp : cps) {
-        if (FT_Load_Char(face, cp, FT_LOAD_RENDER)) continue;
-        FT_Bitmap& bm = face->glyph->bitmap;
-        int y0 = baseline - face->glyph->bitmap_top;
-        for (int row = 0; row < (int)bm.rows; row++) {
-            for (int col = 0; col < (int)bm.width; col++) {
-                int py = y0 + row;
-                int px2 = x + col;
-                if (py >= 0 && py < maxH && px2 >= 0 && px2 < totalW) {
-                    pixels[(size_t)py * totalW + px2] = bm.buffer[row * bm.pitch + col];
-                }
-            }
-        }
-        x += bm.width + 2;
-    }
-
-    // Convert grayscale -> RGBA with the given color.
-    uint8_t r = (rgba >> 24) & 0xFF, g = (rgba >> 16) & 0xFF, b = (rgba >> 8) & 0xFF, a = rgba & 0xFF;
-    std::vector<uint8_t> rgbaBuf((size_t)totalW * maxH * 4);
-    for (size_t i = 0; i < (size_t)totalW * maxH; i++) {
-        rgbaBuf[i * 4 + 0] = r;
-        rgbaBuf[i * 4 + 1] = g;
-        rgbaBuf[i * 4 + 2] = b;
-        rgbaBuf[i * 4 + 3] = (uint8_t)((uint16_t)pixels[i] * a / 255);
-    }
+    env_->ReleaseIntArrayElements(arr, pixels, 0);
 
     GLuint tex = 0;
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, totalW, maxH, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgbaBuf.data());
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgbaBuf.data());
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    outW = totalW;
-    outH = maxH;
+    env_->DeleteLocalRef(canvas);
+    env_->DeleteLocalRef(bitmap);
+    env_->DeleteLocalRef(arr);
+    env_->DeleteLocalRef(jtext);
+    env_->DeleteLocalRef(paint);
+
+    outW = w;
+    outH = h;
     return tex;
 }
 
 void TextRenderer::Shutdown() {
-    if (face_) { FT_Done_Face((FT_Face)face_); face_ = nullptr; }
-    if (ft_) { FT_Done_FreeType((FT_Library)ft_); ft_ = nullptr; }
+    if (clsBitmap_) { env_->DeleteGlobalRef(clsBitmap_); clsBitmap_ = nullptr; }
+    if (clsCanvas_) { env_->DeleteGlobalRef(clsCanvas_); clsCanvas_ = nullptr; }
+    if (clsPaint_) { env_->DeleteGlobalRef(clsPaint_); clsPaint_ = nullptr; }
     init_ = false;
 }
