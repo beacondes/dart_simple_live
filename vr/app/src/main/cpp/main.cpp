@@ -18,6 +18,7 @@
 
 #include "video_decoder.h"
 #include "video_renderer.h"
+#include "data_bridge.h"
 
 #define LOG_TAG "SimpleLiveVR"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -40,6 +41,7 @@ VideoDecoder g_decoder;
 VideoRenderer g_renderer;
 JNIEnv* g_env = nullptr;
 bool g_rendererReady = false;
+DataBridge g_bridge;
 
 struct Swapchain {
     XrSwapchain handle = XR_NULL_HANDLE;
@@ -312,6 +314,9 @@ void android_main(struct android_app* app) {
                 if (g_rendererReady) {
                     // Hardcoded H.264 1080p decoder; real stream source is the next milestone.
                     g_decoder.Init(env, "video/avc", 1920, 1080);
+                if (g_bridge.Connect("127.0.0.1", 9527)) {
+                    g_bridge.SendWatch("bilibili", "1");  // TODO: real room id
+                }
                 }
             }
             if (!initialized) { LOGE("init failed"); break; }
@@ -319,6 +324,12 @@ void android_main(struct android_app* app) {
         if (initialized) {
             PollEvents();
             if (g_running) RenderFrame();
+            std::string btype, ba, bb;
+            while (g_bridge.Poll(btype, ba, bb)) {
+                if (btype == "STREAM") LOGI("bridge: stream = %s", ba.c_str());
+                else if (btype == "DANMAKU") LOGI("danmaku [%s]: %s", ba.c_str(), bb.c_str());
+                else LOGI("bridge: %s %s %s", btype.c_str(), ba.c_str(), bb.c_str());
+            }
         }
     }
     Cleanup();
