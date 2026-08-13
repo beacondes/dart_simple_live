@@ -347,7 +347,25 @@ void android_main(struct android_app* app) {
 
     bool initialized = false;
     LOGI("android_main started");
-    g_logFile = fopen("/sdcard/simplelive_vr.log", "w");
+    {
+        jclass actCls = env->GetObjectClass(app->activity->clazz);
+        jmethodID gEfd = env->GetMethodID(actCls, "getExternalFilesDir", "(Ljava/lang/String;)Ljava/io/File;");
+        jobject dirObj = gEfd ? env->CallObjectMethod(app->activity->clazz, gEfd, nullptr) : nullptr;
+        if (dirObj) {
+            jclass fileCls = env->GetObjectClass(dirObj);
+            jmethodID gPath = env->GetMethodID(fileCls, "getAbsolutePath", "()Ljava/lang/String;");
+            jstring pStr = (jstring)env->CallObjectMethod(dirObj, gPath);
+            const char* p = env->GetStringUTFChars(pStr, nullptr);
+            char logPath[512];
+            snprintf(logPath, sizeof(logPath), "%s/simplelive_vr.log", p);
+            g_logFile = fopen(logPath, "w");
+            env->ReleaseStringUTFChars(pStr, p);
+            env->DeleteLocalRef(pStr);
+            env->DeleteLocalRef(fileCls);
+            env->DeleteLocalRef(dirObj);
+        }
+        env->DeleteLocalRef(actCls);
+    }
     SetStatus("应用启动，准备初始化...");
     while (!app->destroyRequested) {
         int events;
