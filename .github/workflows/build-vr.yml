@@ -40,8 +40,14 @@ jobs:
         working-directory: vr
         run: gradle assembleRelease --no-daemon
 
+      - name: Verify APK signature
+        working-directory: vr
+        run: |
+          APKSIGNER=$(find $ANDROID_HOME/build-tools -name apksigner | sort | tail -1)
+          $APKSIGNER verify --print-certs app/build/outputs/apk/release/app-release.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: simplelive-vr-apk
-          path: vr/app/build/outputs/apk/release/*.apk
+          path: vr/app/build/outputs/apk/release/app-release.apk
