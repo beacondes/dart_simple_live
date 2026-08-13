@@ -20,6 +20,8 @@
 #include "video_renderer.h"
 #include "data_bridge.h"
 #include "stream_downloader.h"
+#include "text_renderer.h"
+#include "danmaku_renderer.h"
 
 #define LOG_TAG "SimpleLiveVR"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -45,6 +47,8 @@ bool g_rendererReady = false;
 DataBridge g_bridge;
 StreamDownloader g_downloader;
 JavaVM* g_vm = nullptr;
+TextRenderer g_text;
+DanmakuRenderer g_danmaku;
 
 struct Swapchain {
     XrSwapchain handle = XR_NULL_HANDLE;
@@ -199,6 +203,7 @@ void RenderFrame() {
         if (g_rendererReady && g_decoder.IsInit() && g_env) {
             g_decoder.UpdateTexture(g_env);
         }
+        g_danmaku.Update(0.016f);
 
         std::vector<XrCompositionLayerProjectionView> projViews(g_views.size());
         for (uint32_t i = 0; i < viewCount; i++) {
@@ -218,6 +223,7 @@ void RenderFrame() {
 
             if (g_rendererReady) {
                 g_renderer.Render(g_decoder.GetTexture(), g_views[i].pose, g_views[i].fov);
+                g_danmaku.Render(g_views[i].pose, g_views[i].fov);
             }
 
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -277,6 +283,8 @@ void Cleanup() {
     g_downloader.Stop();
     g_decoder.Shutdown(g_env);
     g_renderer.Shutdown();
+    g_danmaku.Shutdown();
+    g_text.Shutdown();
     for (auto& sc : g_swapchains) {
         for (GLuint fb : sc.framebuffers) glDeleteFramebuffers(1, &fb);
         if (sc.handle != XR_NULL_HANDLE) xrDestroySwapchain(sc.handle);
@@ -316,6 +324,7 @@ void android_main(struct android_app* app) {
             initialized = InitEGL(app) && InitOpenXR(app);
             if (initialized) {
                 g_rendererReady = g_renderer.Init();
+                if (g_text.Init()) { g_danmaku.Init(&g_text); }
                 if (g_rendererReady) {
                     // Hardcoded H.264 1080p decoder; real stream source is the next milestone.
                     g_decoder.Init(env, "video/avc", 1920, 1080);
@@ -336,7 +345,11 @@ void android_main(struct android_app* app) {
                     LOGI("bridge: stream = %s", bf.empty() ? "" : bf[0].c_str());
                     if (!bf.empty()) g_downloader.Start(bf[0].c_str(), g_vm, &g_decoder);
                 }
-                else if (btype == "DANMAKU") LOGI("danmaku [%s]: %s", bf.size() > 0 ? bf[0].c_str() : "", bf.size() > 1 ? bf[1].c_str() : "");
+                else if (btype == "DANMAKU") {
+                    std::string du = bf.size() > 0 ? bf[0] : "";
+                    std::string dtxt = bf.size() > 1 ? bf[1] : "";
+                    g_danmaku.AddDanmaku(du, dtxt);
+                }
                 else if (btype == "ROOM") LOGI("room: id=%s title=%s user=%s online=%s", bf.size() > 0 ? bf[0].c_str() : "", bf.size() > 1 ? bf[1].c_str() : "", bf.size() > 2 ? bf[2].c_str() : "", bf.size() > 3 ? bf[3].c_str() : "");
                 else LOGI("bridge: %s", btype.c_str());
             }
