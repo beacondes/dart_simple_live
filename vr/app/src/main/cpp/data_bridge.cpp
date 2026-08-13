@@ -41,9 +41,9 @@ bool DataBridge::Connect(const char* host, int port) {
     return true;
 }
 
-bool DataBridge::SendWatch(const char* platform, const char* roomId) {
+bool DataBridge::Send(const char* line) {
     if (sock_ < 0) return false;
-    std::string cmd = std::string("WATCH ") + platform + " " + roomId + "\n";
+    std::string cmd = std::string(line) + "\n";
     ssize_t n = ::send(sock_, cmd.c_str(), cmd.size(), 0);
     return n == static_cast<ssize_t>(cmd.size());
 }
@@ -68,16 +68,23 @@ bool DataBridge::ReadLine(std::string& line) {
     return true;
 }
 
-bool DataBridge::Poll(std::string& type, std::string& a, std::string& b) {
+bool DataBridge::Poll(std::string& type, std::vector<std::string>& fields) {
     std::string line;
     if (!ReadLine(line)) return false;
 
+    fields.clear();
     size_t sp = line.find(' ');
     type = (sp == std::string::npos) ? line : line.substr(0, sp);
-    std::string rest = (sp == std::string::npos) ? "" : line.substr(sp + 1);
-    size_t bar = rest.find('|');
-    if (bar == std::string::npos) { a = rest; b = ""; }
-    else { a = rest.substr(0, bar); b = rest.substr(bar + 1); }
+    if (sp == std::string::npos) return true;  // no args (e.g. READY/DONE/CLOSE)
+
+    std::string rest = line.substr(sp + 1);
+    size_t start = 0;
+    while (true) {
+        size_t bar = rest.find('|', start);
+        if (bar == std::string::npos) { fields.push_back(rest.substr(start)); break; }
+        fields.push_back(rest.substr(start, bar - start));
+        start = bar + 1;
+    }
     return true;
 }
 
