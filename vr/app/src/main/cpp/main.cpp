@@ -117,7 +117,7 @@ bool InitOpenXR(android_app* app) {
     strcpy(createInfo.applicationInfo.applicationName, "SimpleLive VR");
     createInfo.applicationInfo.applicationVersion = 1;
     createInfo.applicationInfo.engineVersion = 0;
-    createInfo.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
+    createInfo.applicationInfo.apiVersion = XR_MAKE_VERSION(1, 0, 0);
     const char* enabledExts[] = { XR_KHR_OPENGL_ES_ENABLE_EXTENSION_NAME };
     createInfo.enabledExtensionCount = 1;
     createInfo.enabledExtensionNames = enabledExts;
@@ -332,6 +332,7 @@ void android_main(struct android_app* app) {
     g_vm = app->activity->vm;
 
     bool initialized = false;
+    LOGI("android_main started");
     while (!app->destroyRequested) {
         int events;
         struct android_poll_source* source;
@@ -342,6 +343,7 @@ void android_main(struct android_app* app) {
         if (app->destroyRequested) break;
 
         if (!initialized && app->window != nullptr) {
+            LOGI("window ready, initializing EGL + OpenXR...");
             initialized = InitEGL(app) && InitOpenXR(app);
             if (initialized) {
                 g_rendererReady = g_renderer.Init();
