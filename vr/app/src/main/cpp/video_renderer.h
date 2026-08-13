@@ -1,6 +1,6 @@
 #pragma once
 #include <GLES3/gl3.h>
-#include <GLES3/gl2ext.h>
+#include <GLES2/gl2ext.h>
 #include <openxr/openxr.h>
 
 // Renders a textured quad (OES external texture from SurfaceTexture) in VR space.
