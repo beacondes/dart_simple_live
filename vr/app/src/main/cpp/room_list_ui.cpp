@@ -135,6 +135,23 @@ std::string RoomListUI::Update(const XrPosef& viewPose, float dt) {
     return selected;
 }
 
+std::string RoomListUI::UpdateWithController(const XrPosef& controllerPose, bool triggerPressed, float dt) {
+    if (!init_ || rooms_.empty() || !triggerPressed) return "";
+    Mat4 rot = QuatToMat4(controllerPose.orientation);
+    float fx = -rot.m[8], fy = -rot.m[9], fz = -rot.m[10];
+    if (std::fabs(fz) < 1e-6f) return "";
+    for (auto& r : rooms_) {
+        float t = (r.z - controllerPose.position.z) / fz;
+        if (t <= 0.0f) continue;
+        float hx = controllerPose.position.x + t * fx;
+        float hy = controllerPose.position.y + t * fy;
+        if (std::fabs(hx - r.x) < r.halfW + 0.02f && std::fabs(hy - r.y) < r.halfH + 0.02f) {
+            return r.roomId;
+        }
+    }
+    return "";
+}
+
 void RoomListUI::Render(const XrPosef& viewPose, const XrFovf& fov) {
     if (!init_ || rooms_.empty()) return;
 
