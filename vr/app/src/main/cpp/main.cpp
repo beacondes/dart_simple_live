@@ -23,6 +23,7 @@
 #include "text_renderer.h"
 #include "danmaku_renderer.h"
 #include "room_list_ui.h"
+#include "xr_input.h"
 
 #define LOG_TAG "SimpleLiveVR"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -51,6 +52,7 @@ JavaVM* g_vm = nullptr;
 TextRenderer g_text;
 DanmakuRenderer g_danmaku;
 RoomListUI g_roomList;
+XrInput g_input;
 
 struct Swapchain {
     XrSwapchain handle = XR_NULL_HANDLE;
@@ -205,6 +207,15 @@ void RenderFrame() {
         if (g_rendererReady && g_decoder.IsInit() && g_env) {
             g_decoder.UpdateTexture(g_env);
         }
+        g_input.Sync();
+        XrPosef aimPose{};
+        if (g_input.GetAimPose(g_space, frameState.predictedDisplayTime, aimPose)) {
+            std::string selCtrl = g_roomList.UpdateWithController(aimPose, g_input.IsTriggerPressed(), 0.016f);
+            if (!selCtrl.empty()) {
+                g_bridge.Send(("WATCH bilibili " + selCtrl).c_str());
+                g_roomList.Clear();
+            }
+        }
         g_danmaku.Update(0.016f);
         std::string sel = g_roomList.Update(g_views[0].pose, 0.016f);
         if (!sel.empty()) {
@@ -293,6 +304,7 @@ void Cleanup() {
     g_renderer.Shutdown();
     g_danmaku.Shutdown();
     g_roomList.Shutdown();
+    g_input.Shutdown();
     g_text.Shutdown();
     for (auto& sc : g_swapchains) {
         for (GLuint fb : sc.framebuffers) glDeleteFramebuffers(1, &fb);
@@ -334,6 +346,7 @@ void android_main(struct android_app* app) {
             if (initialized) {
                 g_rendererReady = g_renderer.Init();
                 if (g_text.Init(env)) { g_danmaku.Init(&g_text); g_roomList.Init(&g_text); }
+                g_input.Init(g_instance, g_session);
                 if (g_rendererReady) {
                     // Hardcoded H.264 1080p decoder; real stream source is the next milestone.
                     g_decoder.Init(env, "video/avc", 1920, 1080);
