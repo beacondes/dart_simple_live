@@ -24,6 +24,7 @@
 #include "danmaku_renderer.h"
 #include "room_list_ui.h"
 #include "xr_input.h"
+#include "status_overlay.h"
 
 #define LOG_TAG "SimpleLiveVR"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -53,6 +54,9 @@ TextRenderer g_text;
 DanmakuRenderer g_danmaku;
 RoomListUI g_roomList;
 XrInput g_input;
+StatusOverlay g_statusOverlay;
+std::string g_status = "启动中...";
+FILE* g_logFile = nullptr;
 
 struct Swapchain {
     XrSwapchain handle = XR_NULL_HANDLE;
@@ -71,6 +75,13 @@ bool CheckXr(XrResult result, const char* what) {
     xrResultToString(g_instance, result, buf);
     LOGE("%s failed: %s", what, buf);
     return false;
+}
+
+void SetStatus(const std::string& s) {
+    g_status = s;
+    LOGI("STATUS: %s", s.c_str());
+    if (g_logFile) { fprintf(g_logFile, "%s\n", s.c_str()); fflush(g_logFile); }
+    g_statusOverlay.SetStatus(s);
 }
 
 bool InitEGL(android_app* app) {
@@ -243,6 +254,7 @@ void RenderFrame() {
                 g_renderer.Render(g_decoder.GetTexture(), g_views[i].pose, g_views[i].fov);
                 g_danmaku.Render(g_views[i].pose, g_views[i].fov);
                 g_roomList.Render(g_views[i].pose, g_views[i].fov);
+                g_statusOverlay.Render(g_views[i].pose, g_views[i].fov);
             }
 
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -305,6 +317,8 @@ void Cleanup() {
     g_danmaku.Shutdown();
     g_roomList.Shutdown();
     g_input.Shutdown();
+    g_statusOverlay.Shutdown();
+    if (g_logFile) { fclose(g_logFile); g_logFile = nullptr; }
     g_text.Shutdown();
     for (auto& sc : g_swapchains) {
         for (GLuint fb : sc.framebuffers) glDeleteFramebuffers(1, &fb);
@@ -333,6 +347,8 @@ void android_main(struct android_app* app) {
 
     bool initialized = false;
     LOGI("android_main started");
+    g_logFile = fopen("/sdcard/simplelive_vr.log", "w");
+    SetStatus("应用启动，准备初始化...");
     while (!app->destroyRequested) {
         int events;
         struct android_poll_source* source;
@@ -344,16 +360,27 @@ void android_main(struct android_app* app) {
 
         if (!initialized && app->window != nullptr) {
             LOGI("window ready, initializing EGL + OpenXR...");
-            initialized = InitEGL(app) && InitOpenXR(app);
+            if (InitEGL(app)) {
+                SetStatus("EGL 成功，初始化 OpenXR...");
+                if (InitOpenXR(app)) { SetStatus("OpenXR 成功"); initialized = true; }
+                else { SetStatus("OpenXR 初始化失败"); }
+            } else {
+                SetStatus("EGL 初始化失败");
+            }
             if (initialized) {
                 g_rendererReady = g_renderer.Init();
-                if (g_text.Init(env)) { g_danmaku.Init(&g_text); g_roomList.Init(&g_text); }
+                if (g_text.Init(env)) { g_danmaku.Init(&g_text); g_roomList.Init(&g_text); g_statusOverlay.Init(&g_text); }
+                SetStatus("渲染器就绪，等待会话...");
                 g_input.Init(g_instance, g_session);
                 if (g_rendererReady) {
                     // Hardcoded H.264 1080p decoder; real stream source is the next milestone.
                     g_decoder.Init(env, "video/avc", 1920, 1080);
+                SetStatus("连接桥接服务器 127.0.0.1:9527...");
                 if (g_bridge.Connect("127.0.0.1", 9527)) {
+                    SetStatus("桥接已连接，请求房间列表...");
                     g_bridge.Send("LIST bilibili");
+                } else {
+                    SetStatus("桥接连接失败（检查 Dart 服务器）");
                 }
                 }
             }
@@ -367,6 +394,7 @@ void android_main(struct android_app* app) {
             while (g_bridge.Poll(btype, bf)) {
                 if (btype == "STREAM") {
                     LOGI("bridge: stream = %s", bf.empty() ? "" : bf[0].c_str());
+                    SetStatus("收到视频流，开始下载播放...");
                     if (!bf.empty()) g_downloader.Start(bf[0].c_str(), g_vm, &g_decoder);
                 }
                 else if (btype == "DANMAKU") {
