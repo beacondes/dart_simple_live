@@ -324,7 +324,7 @@ void android_main(struct android_app* app) {
             initialized = InitEGL(app) && InitOpenXR(app);
             if (initialized) {
                 g_rendererReady = g_renderer.Init();
-                if (g_text.Init()) { g_danmaku.Init(&g_text); }
+                if (g_text.Init(env)) { g_danmaku.Init(&g_text); }
                 if (g_rendererReady) {
                     // Hardcoded H.264 1080p decoder; real stream source is the next milestone.
                     g_decoder.Init(env, "video/avc", 1920, 1080);
