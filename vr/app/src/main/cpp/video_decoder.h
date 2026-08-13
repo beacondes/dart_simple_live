@@ -1,6 +1,7 @@
 #pragma once
 #include <jni.h>
 #include <GLES3/gl3.h>
+#include <GLES3/gl2ext.h>
 #include <cstdint>
 #include <cstddef>
 
