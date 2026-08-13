@@ -19,6 +19,7 @@
 #include "video_decoder.h"
 #include "video_renderer.h"
 #include "data_bridge.h"
+#include "stream_downloader.h"
 
 #define LOG_TAG "SimpleLiveVR"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -42,6 +43,8 @@ VideoRenderer g_renderer;
 JNIEnv* g_env = nullptr;
 bool g_rendererReady = false;
 DataBridge g_bridge;
+StreamDownloader g_downloader;
+JavaVM* g_vm = nullptr;
 
 struct Swapchain {
     XrSwapchain handle = XR_NULL_HANDLE;
@@ -271,6 +274,7 @@ void PollEvents() {
 }
 
 void Cleanup() {
+    g_downloader.Stop();
     g_decoder.Shutdown(g_env);
     g_renderer.Shutdown();
     for (auto& sc : g_swapchains) {
@@ -296,6 +300,7 @@ void android_main(struct android_app* app) {
     JNIEnv* env = nullptr;
     app->activity->vm->AttachCurrentThread(&env, nullptr);
     g_env = env;
+    g_vm = app->activity->vm;
 
     bool initialized = false;
     while (!app->destroyRequested) {
@@ -326,7 +331,10 @@ void android_main(struct android_app* app) {
             if (g_running) RenderFrame();
             std::string btype, ba, bb;
             while (g_bridge.Poll(btype, ba, bb)) {
-                if (btype == "STREAM") LOGI("bridge: stream = %s", ba.c_str());
+                if (btype == "STREAM") {
+                    LOGI("bridge: stream = %s", ba.c_str());
+                    g_downloader.Start(ba.c_str(), g_vm, &g_decoder);
+                }
                 else if (btype == "DANMAKU") LOGI("danmaku [%s]: %s", ba.c_str(), bb.c_str());
                 else LOGI("bridge: %s %s %s", btype.c_str(), ba.c_str(), bb.c_str());
             }
