@@ -336,7 +336,8 @@ void android_main(struct android_app* app) {
                     LOGI("bridge: stream = %s", bf.empty() ? "" : bf[0].c_str());
                     if (!bf.empty()) g_downloader.Start(bf[0].c_str(), g_vm, &g_decoder);
                 }
-                else if (btype == "DANMAKU") LOGI("danmaku [%s]: %s", ba.c_str(), bb.c_str());
+                else if (btype == "DANMAKU") LOGI("danmaku [%s]: %s", bf.size() > 0 ? bf[0].c_str() : "", bf.size() > 1 ? bf[1].c_str() : "");
+                else if (btype == "ROOM") LOGI("room: id=%s title=%s user=%s online=%s", bf.size() > 0 ? bf[0].c_str() : "", bf.size() > 1 ? bf[1].c_str() : "", bf.size() > 2 ? bf[2].c_str() : "", bf.size() > 3 ? bf[3].c_str() : "");
                 else LOGI("bridge: %s", btype.c_str());
             }
         }
